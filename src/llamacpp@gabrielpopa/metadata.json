@@ -1,0 +1,12 @@
+{
+  "description": "Shows llama.cpp server throughput and controls a local llama-server process.",
+  "name": "llama.cpp Server Monitor",
+  "settings-schema": "org.gnome.shell.extensions.llamacpp",
+  "shell-version": [
+    "45",
+    "46",
+    "47"
+  ],
+  "uuid": "llamacpp@gabrielpopa",
+  "version": 1
+}

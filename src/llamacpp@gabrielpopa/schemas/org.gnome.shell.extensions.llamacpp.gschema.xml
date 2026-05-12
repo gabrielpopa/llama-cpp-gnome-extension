@@ -1,0 +1,84 @@
+<schemalist>
+  <schema id="org.gnome.shell.extensions.llamacpp" path="/org/gnome/shell/extensions/llamacpp/">
+    <key name="command" type="s">
+      <default>''</default>
+      <summary>Legacy server start command</summary>
+      <description>Legacy command setting kept for upgrades. Server profiles are used by the extension.</description>
+    </key>
+    <key name="workdir" type="s">
+      <default>''</default>
+      <summary>Legacy working directory</summary>
+      <description>Legacy working directory setting kept for upgrades. Server profiles are used by the extension.</description>
+    </key>
+    <key name="process-pattern" type="s">
+      <default>'[l]lama-server'</default>
+      <summary>Process match pattern</summary>
+      <description>Regular expression used by pgrep and pkill to detect or stop externally started servers.</description>
+    </key>
+    <key name="server-names" type="as">
+      <default>[]</default>
+      <summary>Server profile names</summary>
+    </key>
+    <key name="server-commands" type="as">
+      <default>[]</default>
+      <summary>Server profile commands</summary>
+    </key>
+    <key name="server-workdirs" type="as">
+      <default>[]</default>
+      <summary>Server profile working directories</summary>
+    </key>
+    <key name="server-patterns" type="as">
+      <default>[]</default>
+      <summary>Server profile process patterns</summary>
+    </key>
+    <key name="selected-server" type="i">
+      <default>0</default>
+      <range min="0" max="1024"/>
+      <summary>Selected server profile index</summary>
+    </key>
+    <key name="refresh-rate" type="i">
+      <default>3</default>
+      <range min="1" max="60"/>
+      <summary>Refresh interval</summary>
+      <description>Process status refresh interval in seconds.</description>
+    </key>
+    <key name="position" type="i">
+      <default>2</default>
+      <range min="0" max="2"/>
+      <summary>Panel position</summary>
+      <description>Panel position: left, center, or right.</description>
+    </key>
+    <key name="show-status" type="b">
+      <default>false</default>
+      <summary>Show status in panel</summary>
+    </key>
+    <key name="show-eval-tps" type="b">
+      <default>true</default>
+      <summary>Show generation tokens per second in panel</summary>
+    </key>
+    <key name="show-prompt-tps" type="b">
+      <default>false</default>
+      <summary>Show prompt tokens per second in panel</summary>
+    </key>
+    <key name="show-eval-tokens" type="b">
+      <default>false</default>
+      <summary>Show generated token count in panel</summary>
+    </key>
+    <key name="show-prompt-tokens" type="b">
+      <default>false</default>
+      <summary>Show prompt token count in panel</summary>
+    </key>
+    <key name="show-total-tokens" type="b">
+      <default>false</default>
+      <summary>Show total token count in panel</summary>
+    </key>
+    <key name="show-total-time" type="b">
+      <default>false</default>
+      <summary>Show total time in panel</summary>
+    </key>
+    <key name="show-slot-task" type="b">
+      <default>false</default>
+      <summary>Show slot and task in panel</summary>
+    </key>
+  </schema>
+</schemalist>
