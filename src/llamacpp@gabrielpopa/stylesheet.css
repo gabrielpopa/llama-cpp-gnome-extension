@@ -5,3 +5,21 @@
 .llamacpp-menu-value {
     font-feature-settings: "tnum";
 }
+
+.llamacpp-panel-metrics {
+    spacing: 7px;
+}
+
+.llamacpp-panel-segment {
+    spacing: 2px;
+}
+
+.llamacpp-panel-metric-icon {
+    icon-size: 14px;
+    min-width: 14px;
+    min-height: 14px;
+}
+
+.llamacpp-panel-value {
+    min-width: 1.5em;
+}

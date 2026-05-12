@@ -37,35 +37,49 @@ const PROFILE_KEYS = {
 };
 
 const PANEL_SETTINGS = {
+    'panel-label-mode': {
+        type: 'combo',
+        title: 'Panel label style',
+        subtitle: 'Choose icons, text labels, or values only for top-bar metrics.',
+        options: ['Icons', 'Text labels', 'Values only'],
+    },
     'show-status': {
+        type: 'bool',
         title: 'Status',
         subtitle: 'Show Busy, Idle, Stopped, or Running external.',
     },
     'show-eval-tps': {
+        type: 'bool',
         title: 'Generation TPS',
         subtitle: 'Show the latest generation tokens per second.',
     },
     'show-prompt-tps': {
+        type: 'bool',
         title: 'Prompt TPS',
         subtitle: 'Show the prompt processing tokens per second.',
     },
     'show-eval-tokens': {
+        type: 'bool',
         title: 'Generated tokens',
         subtitle: 'Show the latest output token count.',
     },
     'show-prompt-tokens': {
+        type: 'bool',
         title: 'Prompt tokens',
         subtitle: 'Show the latest prompt token count.',
     },
     'show-total-tokens': {
+        type: 'bool',
         title: 'Total tokens',
         subtitle: 'Show total tokens from the latest timing block.',
     },
     'show-total-time': {
+        type: 'bool',
         title: 'Total time',
         subtitle: 'Show total time from the latest timing block.',
     },
     'show-slot-task': {
+        type: 'bool',
         title: 'Slot and task',
         subtitle: 'Show the latest slot and task IDs.',
     },
@@ -123,7 +137,7 @@ export default class LlamaCppPreferences extends ExtensionPreferences {
             description: 'Select which values are shown directly in the top bar.',
         });
         for (let key in PANEL_SETTINGS)
-            panelGroup.add(_buildSwitchRow(key));
+            panelGroup.add(_buildPanelRow(key));
 
         page.add(serverGroup);
         page.add(generalGroup);
@@ -386,8 +400,44 @@ function _buildGeneralRow(key) {
     return row;
 }
 
-function _buildSwitchRow(key) {
+function _buildPanelRow(key) {
     let config = PANEL_SETTINGS[key];
+
+    if (config.type === 'combo')
+        return _buildComboRow(key, config);
+
+    return _buildSwitchRow(key, config);
+}
+
+function _buildComboRow(key, config) {
+    let row = new Adw.ActionRow({
+        title: config.title,
+        subtitle: config.subtitle,
+    });
+    let model = new Gtk.ListStore();
+    model.set_column_types([GObject.TYPE_INT, GObject.TYPE_STRING]);
+
+    for (let i = 0; i < config.options.length; i++)
+        model.set(model.append(), [0, 1], [i, config.options[i]]);
+
+    let combo = new Gtk.ComboBox({model, valign: Gtk.Align.CENTER});
+    let renderer = new Gtk.CellRendererText();
+
+    combo.pack_start(renderer, true);
+    combo.add_attribute(renderer, 'text', 1);
+    combo.set_active(settings.get_int(key));
+    combo.connect('changed', () => {
+        let [success, iter] = combo.get_active_iter();
+        if (success)
+            settings.set_int(key, model.get_value(iter, 0));
+    });
+    row.add_suffix(combo);
+    row.activatable_widget = combo;
+
+    return row;
+}
+
+function _buildSwitchRow(key, config) {
     let row = new Adw.ActionRow({
         title: config.title,
         subtitle: config.subtitle,

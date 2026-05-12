@@ -80,5 +80,11 @@
       <default>false</default>
       <summary>Show slot and task in panel</summary>
     </key>
+    <key name="panel-label-mode" type="i">
+      <default>0</default>
+      <range min="0" max="2"/>
+      <summary>Panel metric label mode</summary>
+      <description>Metric labels in the panel: icons, text labels, or values only.</description>
+    </key>
   </schema>
 </schemalist>

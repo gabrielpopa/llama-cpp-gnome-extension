@@ -14,6 +14,7 @@ import {Extension} from 'resource:///org/gnome/shell/extensions/extension.js';
 const SETTINGS_PROCESS_PATTERN = 'process-pattern';
 const SETTINGS_REFRESH_RATE = 'refresh-rate';
 const SETTINGS_POSITION = 'position';
+const SETTINGS_PANEL_LABEL_MODE = 'panel-label-mode';
 const SETTINGS_SERVER_NAMES = 'server-names';
 const SETTINGS_SERVER_COMMANDS = 'server-commands';
 const SETTINGS_SERVER_WORKDIRS = 'server-workdirs';
@@ -36,7 +37,43 @@ const PANEL_SETTING_KEYS = [
     'show-total-tokens',
     'show-total-time',
     'show-slot-task',
+    SETTINGS_PANEL_LABEL_MODE,
 ];
+
+const PANEL_LABEL_MODE_ICONS = 0;
+const PANEL_LABEL_MODE_TEXT = 1;
+const PANEL_LABEL_MODE_VALUES = 2;
+
+const PANEL_METRICS = {
+    evalTps: {
+        text: 'gen',
+        icon: 'go-next-symbolic',
+    },
+    promptTps: {
+        text: 'prompt',
+        icon: 'document-edit-symbolic',
+    },
+    evalTokens: {
+        text: 'out',
+        icon: 'format-indent-more-symbolic',
+    },
+    promptTokens: {
+        text: 'ctx',
+        icon: 'text-x-generic-symbolic',
+    },
+    totalTokens: {
+        text: 'tok',
+        icon: 'view-list-symbolic',
+    },
+    totalTime: {
+        text: 'time',
+        icon: 'alarm-symbolic',
+    },
+    slotTask: {
+        text: 'slot',
+        icon: 'applications-system-symbolic',
+    },
+};
 
 function _formatNumber(value, digits = 1) {
     if (value === null || value === undefined || Number.isNaN(value))
@@ -53,6 +90,31 @@ function _formatMs(value) {
         return `${(value / 1000).toFixed(2)} s`;
 
     return `${value.toFixed(0)} ms`;
+}
+
+function _formatCompactNumber(value, digits = 0) {
+    if (value === null || value === undefined || Number.isNaN(value))
+        return '';
+
+    if (Math.abs(value) >= 1000) {
+        let rounded = value / 1000;
+        if (Math.abs(rounded) >= 10 || Number.isInteger(rounded))
+            return `${Math.round(rounded)}k`;
+
+        return `${rounded.toFixed(1)}k`;
+    }
+
+    return digits > 0 ? value.toFixed(digits) : String(Math.round(value));
+}
+
+function _formatCompactMs(value) {
+    if (value === null || value === undefined || Number.isNaN(value))
+        return '';
+
+    if (value >= 1000)
+        return `${(value / 1000).toFixed(1)}s`;
+
+    return `${Math.round(value)}ms`;
 }
 
 function _exec(argv) {
@@ -159,9 +221,14 @@ class LlamaCppIndicator extends PanelMenu.Button {
             style_class: 'llamacpp-panel-label',
             y_align: Clutter.ActorAlign.CENTER,
         });
+        this._panelMetrics = new St.BoxLayout({
+            style_class: 'llamacpp-panel-metrics',
+            y_align: Clutter.ActorAlign.CENTER,
+        });
 
         box.add_child(this._panelIcon);
         box.add_child(this._panelLabel);
+        box.add_child(this._panelMetrics);
         box.add_child(PopupMenu.arrowIcon(St.Side.BOTTOM));
         this.add_child(box);
     }
@@ -557,7 +624,7 @@ class LlamaCppIndicator extends PanelMenu.Button {
             ? '-'
             : `${_formatNumber(this._metrics.promptTps, 2)} tok/s`;
 
-        this._panelLabel.text = this._buildPanelText();
+        this._renderPanel();
 
         this._rows.status.setValue(this._metrics.status);
         this._rows.pid.setValue(String(this._metrics.pid));
@@ -575,47 +642,127 @@ class LlamaCppIndicator extends PanelMenu.Button {
             : this._metrics.lastLine);
     }
 
-    _buildPanelText() {
+    _renderPanel() {
+        this._panelMetrics.destroy_all_children();
+
         if (this._metrics.status === 'Stopped' ||
             this._metrics.status === 'Starting' ||
             this._metrics.status === 'Stopping' ||
             this._metrics.status === 'Unknown' ||
-            this._metrics.status === 'Stop failed')
-            return `LLM ${this._metrics.status.toLowerCase()}`;
+            this._metrics.status === 'Stop failed') {
+            this._panelLabel.text = `LLM ${this._metrics.status.toLowerCase()}`;
+            return;
+        }
 
-        if (this._metrics.status === 'Running external' && !this._hasTimingMetrics())
-            return 'LLM running';
+        if (this._metrics.status === 'Running external' && !this._hasTimingMetrics()) {
+            this._panelLabel.text = 'LLM running';
+            return;
+        }
 
-        let parts = [];
+        let segments = this._buildPanelSegments();
+
+        if (segments.length === 0) {
+            this._panelLabel.text = `LLM ${this._metrics.status.toLowerCase()}`;
+            return;
+        }
+
+        this._panelLabel.text = '';
+        let mode = this._settings.get_int(SETTINGS_PANEL_LABEL_MODE);
+
+        for (let i = 0; i < segments.length; i++) {
+            if (i > 0 && mode !== PANEL_LABEL_MODE_ICONS)
+                this._panelMetrics.add_child(new St.Label({
+                    text: ' | ',
+                    y_align: Clutter.ActorAlign.CENTER,
+                }));
+
+            this._panelMetrics.add_child(this._buildPanelSegmentActor(segments[i]));
+        }
+    }
+
+    _buildPanelSegments() {
+        let segments = [];
 
         if (this._settings.get_boolean('show-status'))
-            parts.push(this._metrics.status);
+            segments.push({value: this._metrics.status});
 
         if (this._settings.get_boolean('show-eval-tps') && this._metrics.evalTps !== null)
-            parts.push(`gen ${_formatNumber(this._metrics.evalTps, 1)} t/s`);
+            segments.push({
+                metric: PANEL_METRICS.evalTps,
+                value: _formatCompactNumber(this._metrics.evalTps, 1),
+            });
 
         if (this._settings.get_boolean('show-prompt-tps') && this._metrics.promptTps !== null)
-            parts.push(`prompt ${_formatNumber(this._metrics.promptTps, 0)} t/s`);
+            segments.push({
+                metric: PANEL_METRICS.promptTps,
+                value: _formatCompactNumber(this._metrics.promptTps, 0),
+            });
 
         if (this._settings.get_boolean('show-eval-tokens') && this._metrics.evalTokens !== null)
-            parts.push(`out ${this._metrics.evalTokens}`);
+            segments.push({
+                metric: PANEL_METRICS.evalTokens,
+                value: _formatCompactNumber(this._metrics.evalTokens),
+            });
 
         if (this._settings.get_boolean('show-prompt-tokens') && this._metrics.promptTokens !== null)
-            parts.push(`ctx ${this._metrics.promptTokens}`);
+            segments.push({
+                metric: PANEL_METRICS.promptTokens,
+                value: _formatCompactNumber(this._metrics.promptTokens),
+            });
 
         if (this._settings.get_boolean('show-total-tokens') && this._metrics.totalTokens !== null)
-            parts.push(`tok ${this._metrics.totalTokens}`);
+            segments.push({
+                metric: PANEL_METRICS.totalTokens,
+                value: _formatCompactNumber(this._metrics.totalTokens),
+            });
 
         if (this._settings.get_boolean('show-total-time') && this._metrics.totalTimeMs !== null)
-            parts.push(`time ${_formatMs(this._metrics.totalTimeMs)}`);
+            segments.push({
+                metric: PANEL_METRICS.totalTime,
+                value: _formatCompactMs(this._metrics.totalTimeMs),
+            });
 
         if (this._settings.get_boolean('show-slot-task') && this._metrics.slot !== '-' && this._metrics.task !== '-')
-            parts.push(`s${this._metrics.slot}/t${this._metrics.task}`);
+            segments.push({
+                metric: PANEL_METRICS.slotTask,
+                value: `s${this._metrics.slot}/t${this._metrics.task}`,
+            });
 
-        if (parts.length === 0)
-            return `LLM ${this._metrics.status.toLowerCase()}`;
+        return segments;
+    }
 
-        return parts.join(' | ');
+    _buildPanelSegmentActor(segment) {
+        let box = new St.BoxLayout({
+            style_class: 'llamacpp-panel-segment',
+            y_align: Clutter.ActorAlign.CENTER,
+        });
+        let mode = this._settings.get_int(SETTINGS_PANEL_LABEL_MODE);
+
+        if (segment.metric && mode === PANEL_LABEL_MODE_ICONS) {
+            box.add_child(new St.Icon({
+                icon_name: segment.metric.icon,
+                icon_size: 14,
+                style_class: 'llamacpp-panel-metric-icon',
+            }));
+        } else if (segment.metric && mode === PANEL_LABEL_MODE_TEXT) {
+            box.add_child(new St.Label({
+                text: `${segment.metric.text} `,
+                y_align: Clutter.ActorAlign.CENTER,
+            }));
+        } else if (mode !== PANEL_LABEL_MODE_VALUES && !segment.metric) {
+            box.add_child(new St.Label({
+                text: 'status ',
+                y_align: Clutter.ActorAlign.CENTER,
+            }));
+        }
+
+        box.add_child(new St.Label({
+            text: segment.value,
+            style_class: 'llamacpp-panel-value',
+            y_align: Clutter.ActorAlign.CENTER,
+        }));
+
+        return box;
     }
 
     _hasTimingMetrics() {
