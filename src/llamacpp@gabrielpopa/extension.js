@@ -79,6 +79,18 @@ function _exec(argv) {
     });
 }
 
+function _parseProcessPid(output) {
+    let lines = output.split('\n')
+        .map(line => line.trim())
+        .filter(line => line.length > 0);
+    let preferred = lines.find(line => line.includes('llama-server')) || lines[0];
+
+    if (!preferred)
+        return '';
+
+    return preferred.split(/\s+/, 1)[0];
+}
+
 function _valueAt(values, index, fallback = '') {
     if (index < values.length && values[index] !== undefined)
         return values[index];
@@ -269,8 +281,9 @@ class LlamaCppIndicator extends PanelMenu.Button {
             this._readCancellable = new Gio.Cancellable();
 
             this._resetMetrics('Starting');
-            this._metrics.pid = this._process.get_identifier() || '-';
+            this._metrics.pid = '-';
             this._renderMetrics();
+            this._refreshProcessStatus(true);
 
             this._readProcessOutput();
             this._process.wait_async(null, (proc, res) => {
@@ -328,10 +341,6 @@ class LlamaCppIndicator extends PanelMenu.Button {
     _handleLogLine(line) {
         this._metrics.lastLine = line.trim();
 
-        let pidMatch = line.match(/^\[(\d+)\]/);
-        if (pidMatch)
-            this._metrics.pid = pidMatch[1];
-
         let timingMatch = line.match(/slot print_timing:\s+id\s+(\d+)\s+\|\s+task\s+(\d+)/);
         if (timingMatch) {
             this._metrics.slot = timingMatch[1];
@@ -381,7 +390,6 @@ class LlamaCppIndicator extends PanelMenu.Button {
             this._process.force_exit();
             this._resetMetrics('Stopping');
             this._renderMetrics();
-            return;
         }
 
         let pattern = this._getSelectedProcessPattern();
@@ -391,33 +399,44 @@ class LlamaCppIndicator extends PanelMenu.Button {
         _exec(['pkill', '-f', pattern])
             .then(() => {
                 this._resetMetrics('Stopped');
+                this._process = null;
+                this._readCancellable = null;
                 this._renderMetrics();
             })
             .catch(e => {
-                this._metrics.status = 'Stop failed';
-                this._renderMetrics();
-                Main.notifyError('Failed to stop llama.cpp server', e.message);
+                this._refreshProcessStatus(true)
+                    .then(() => {
+                        if (this._metrics.pid === '-') {
+                            this._resetMetrics('Stopped');
+                        } else {
+                            this._metrics.status = 'Stop failed';
+                            Main.notifyError('Failed to stop llama.cpp server', e.message);
+                        }
+                        this._process = null;
+                        this._readCancellable = null;
+                        this._renderMetrics();
+                    });
             });
     }
 
-    _refreshProcessStatus() {
-        if (this._process)
-            return;
+    _refreshProcessStatus(force = false) {
+        if (this._process && !force)
+            return Promise.resolve();
 
         let pattern = this._getSelectedProcessPattern();
         if (!pattern) {
             this._resetMetrics('Unknown');
             this._renderMetrics();
-            return;
+            return Promise.resolve();
         }
 
-        _exec(['pgrep', '-af', pattern])
+        return _exec(['pgrep', '-af', pattern])
             .then(output => {
-                let firstLine = output.split('\n').find(line => line.trim()) || '';
-                let pid = firstLine.split(/\s+/, 1)[0];
+                let pid = _parseProcessPid(output);
 
                 if (pid) {
-                    this._metrics.status = 'Running external';
+                    if (!this._process)
+                        this._metrics.status = 'Running external';
                     this._metrics.pid = pid;
                 } else {
                     this._resetMetrics('Stopped');
