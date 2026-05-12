@@ -43,6 +43,8 @@ const PANEL_SETTING_KEYS = [
 const PANEL_LABEL_MODE_ICONS = 0;
 const PANEL_LABEL_MODE_TEXT = 1;
 const PANEL_LABEL_MODE_VALUES = 2;
+const LOG_DIR_NAME = 'llamacpp-gnome-extension';
+const LOG_FILE_NAME = 'server.log';
 
 const PANEL_METRICS = {
     evalTps: {
@@ -115,6 +117,16 @@ function _formatCompactMs(value) {
         return `${(value / 1000).toFixed(1)}s`;
 
     return `${Math.round(value)}ms`;
+}
+
+function _getLogPath() {
+    return GLib.build_filenamev([GLib.get_user_state_dir(), LOG_DIR_NAME, LOG_FILE_NAME]);
+}
+
+function _formatTimestamp() {
+    let now = GLib.DateTime.new_now_local();
+
+    return now.format('%Y-%m-%d %H:%M:%S');
 }
 
 function _exec(argv) {
@@ -197,6 +209,9 @@ class LlamaCppIndicator extends PanelMenu.Button {
         this._settings = extension.getSettings();
         this._process = null;
         this._readCancellable = null;
+        this._logStream = null;
+        this._logPath = _getLogPath();
+        this._logFile = Gio.File.new_for_path(this._logPath);
         this._statusTimeoutId = 0;
         this._settingsSignals = [];
 
@@ -276,6 +291,10 @@ class LlamaCppIndicator extends PanelMenu.Button {
         this._stopItem.connect('activate', () => this._stopServer());
         this.menu.addMenuItem(this._stopItem);
 
+        this._openLogsItem = new PopupMenu.PopupMenuItem('Open logs');
+        this._openLogsItem.connect('activate', () => this._openLogs());
+        this.menu.addMenuItem(this._openLogsItem);
+
         this._prefsItem = new PopupMenu.PopupMenuItem('Preferences');
         this._prefsItem.connect('activate', () => {
             let extensionObject = Extension.lookupByURL(import.meta.url);
@@ -337,6 +356,8 @@ class LlamaCppIndicator extends PanelMenu.Button {
         }
 
         try {
+            this._openLogStream();
+
             let launcher = new Gio.SubprocessLauncher({
                 flags: Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_MERGE,
             });
@@ -360,6 +381,7 @@ class LlamaCppIndicator extends PanelMenu.Button {
                     logError(e);
                 }
 
+                this._closeLogStream();
                 this._process = null;
                 this._readCancellable = null;
                 this._resetMetrics('Stopped');
@@ -370,6 +392,7 @@ class LlamaCppIndicator extends PanelMenu.Button {
             Main.notifyError('Failed to start llama.cpp server', e.message);
             this._process = null;
             this._readCancellable = null;
+            this._closeLogStream();
             this._resetMetrics('Stopped');
             this._renderMetrics();
         }
@@ -407,6 +430,7 @@ class LlamaCppIndicator extends PanelMenu.Button {
 
     _handleLogLine(line) {
         this._metrics.lastLine = line.trim();
+        this._appendLogLine(line);
 
         let timingMatch = line.match(/slot print_timing:\s+id\s+(\d+)\s+\|\s+task\s+(\d+)/);
         if (timingMatch) {
@@ -449,12 +473,72 @@ class LlamaCppIndicator extends PanelMenu.Button {
         this._renderMetrics();
     }
 
+    _ensureLogFile() {
+        let dir = GLib.path_get_dirname(this._logPath);
+        GLib.mkdir_with_parents(dir, 0o700);
+
+        if (!this._logFile.query_exists(null)) {
+            let stream = this._logFile.create(Gio.FileCreateFlags.NONE, null);
+            stream.close(null);
+        }
+    }
+
+    _openLogStream() {
+        this._closeLogStream();
+        this._ensureLogFile();
+        this._logStream = this._logFile.append_to(Gio.FileCreateFlags.NONE, null);
+    }
+
+    _closeLogStream() {
+        if (!this._logStream)
+            return;
+
+        try {
+            this._logStream.close(null);
+        } catch (e) {
+            logError(e);
+        }
+
+        this._logStream = null;
+    }
+
+    _appendLogLine(line) {
+        if (!this._logStream) {
+            try {
+                this._openLogStream();
+            } catch (e) {
+                logError(e);
+                return;
+            }
+        }
+
+        try {
+            let encoder = new TextEncoder();
+            let text = `[${_formatTimestamp()}] ${line}\n`;
+
+            this._logStream.write_all(encoder.encode(text), null);
+        } catch (e) {
+            logError(e);
+            this._closeLogStream();
+        }
+    }
+
+    _openLogs() {
+        try {
+            this._ensureLogFile();
+            Gio.AppInfo.launch_default_for_uri(this._logFile.get_uri(), null);
+        } catch (e) {
+            Main.notifyError('Failed to open llama.cpp logs', e.message);
+        }
+    }
+
     _stopServer() {
         if (this._readCancellable)
             this._readCancellable.cancel();
 
         if (this._process) {
             this._process.force_exit();
+            this._closeLogStream();
             this._resetMetrics('Stopping');
             this._renderMetrics();
         }
@@ -468,6 +552,7 @@ class LlamaCppIndicator extends PanelMenu.Button {
                 this._resetMetrics('Stopped');
                 this._process = null;
                 this._readCancellable = null;
+                this._closeLogStream();
                 this._renderMetrics();
             })
             .catch(e => {
@@ -481,6 +566,7 @@ class LlamaCppIndicator extends PanelMenu.Button {
                         }
                         this._process = null;
                         this._readCancellable = null;
+                        this._closeLogStream();
                         this._renderMetrics();
                     });
             });
@@ -802,6 +888,8 @@ class LlamaCppIndicator extends PanelMenu.Button {
 
         if (this._readCancellable)
             this._readCancellable.cancel();
+
+        this._closeLogStream();
 
         for (let signal of this._settingsSignals)
             this._settings.disconnect(signal);
